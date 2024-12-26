@@ -264,13 +264,24 @@ async function heapify(arr, len, i) {
 async function quickSort(arr, low, high) {
     if (low < high) {
         const pi = await partition(arr, low, high);
-        await quickSort(arr, low, pi - 1);
-        await quickSort(arr, pi + 1, high);
+        // await quickSort(arr, low, pi - 1);
+        // await quickSort(arr, pi + 1, high);
+        await Promise.all([
+            quickSort(arr,low,pi-1),
+            quickSort(arr,pi+1,high)
+        ]);
     }
 }
 
 async function partition(arr, low, high) {
-    const pivot = segmentData[arr[high]].id;
+    // 가운데 값을 피벗으로 선택
+    const pivotIndex = Math.floor((low + high) / 2);
+    const pivot = segmentData[arr[pivotIndex]].id;
+
+    // 피벗을 맨 오른쪽으로 이동 (편의상)
+    await swap(arr, pivotIndex, high);
+    renderSegments();
+
     let i = (low - 1);
 
     for (let j = low; j <= high - 1; j++) {
