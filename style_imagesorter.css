@@ -1,0 +1,72 @@
+/* 예시 style.css */
+/* ... 기존 스타일 ... */
+
+#controls {
+    display: flex;
+    flex-wrap: wrap; /* 작은 화면에서 줄바꿈 허용 */
+    gap: 15px; /* 컨트롤 그룹 사이 간격 */
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+}
+
+.control-group {
+    display: flex;
+    align-items: center; /* 요소 세로 중앙 정렬 */
+    gap: 5px; /* 라벨과 컨트롤 사이 간격 */
+}
+
+#drop-area {
+    border: 2px dashed #ccc;
+    padding: 20px;
+    min-height: 150px; /* 최소 높이 설정 */
+    display: flex; /* 기본적으로 flex 설정 */
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background-color: #e9e9e9;
+    transition: background-color 0.3s ease;
+    overflow: hidden; /* 내부 요소가 넘치지 않도록 */
+    position: relative; /* 로딩 메시지 등 위치 잡기 용이 */
+    flex-wrap: nowrap; /* 이미지 조각 줄바꿈 안함 */
+}
+
+#drop-area.drag-over {
+    background-color: #d0d0d0;
+    border-color: #aaa;
+}
+
+#drop-area img {
+    /* display: block; /* JS에서 설정하므로 제거 가능 */
+    /* height: 100%; /* JS에서 설정하므로 제거 가능 */
+    object-fit: contain; /* 이미지 비율 유지 */
+    max-width: 100%; /* 부모 너비 초과 방지 (필요 시) */
+    image-rendering: pixelated; /* 선명하게 보이도록 (선택 사항) */
+}
+
+
+#drop-message {
+    color: #555;
+}
+
+.info-text {
+    font-size: 0.9em;
+    color: #666;
+    margin-top: 10px;
+    text-align: center;
+}
+
+#status-bar {
+    margin-top: 15px;
+    padding: 8px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* ... 나머지 스타일 ... */
