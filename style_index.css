@@ -1,0 +1,70 @@
+/* 기본 스타일 초기화 및 설정 */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif; /* 시스템 기본 폰트 사용 */
+    margin: 0;
+    padding: 0;
+    display: flex; /* Flexbox 사용 */
+    justify-content: center; /* 가로 중앙 정렬 */
+    align-items: center; /* 세로 중앙 정렬 */
+    min-height: 100vh; /* 최소 높이를 화면 전체 높이로 설정 */
+    background-color: #f0f2f5; /* 약간 밝은 회색 배경 */
+    color: #333; /* 기본 텍스트 색상 */
+    line-height: 1.6;
+}
+
+/* 콘텐츠 컨테이너 */
+.container {
+    text-align: center; /* 내부 요소 가운데 정렬 */
+    background-color: #ffffff; /* 흰색 배경 */
+    padding: 40px 50px; /* 내부 여백 (상하 40px, 좌우 50px) */
+    border-radius: 10px; /* 모서리 둥글게 */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); /* 그림자 효과 */
+    max-width: 500px; /* 최대 너비 제한 */
+    width: 90%; /* 화면 너비의 90% 사용 */
+}
+
+/* 헤더 (제목, 설명) */
+header h1 {
+    color: #1a73e8; /* 파란색 계열 제목 */
+    margin-top: 0; /* 위쪽 마진 제거 */
+    margin-bottom: 10px;
+}
+
+header p {
+    color: #5f6368; /* 약간 어두운 회색 설명 */
+    margin-bottom: 30px; /* 아래쪽 여백 */
+}
+
+/* 링크 버튼 스타일 */
+.link-button {
+    display: block; /* 블록 요소로 만들어 세로로 쌓이도록 함 */
+    background-color: #1a73e8; /* 버튼 배경색 */
+    color: #ffffff; /* 버튼 텍스트 색상 (흰색) */
+    padding: 12px 20px; /* 버튼 내부 여백 */
+    margin: 15px auto; /* 상하 15px, 좌우 자동(가운데 정렬 효과) */
+    text-decoration: none; /* 밑줄 제거 */
+    border-radius: 5px; /* 버튼 모서리 둥글게 */
+    font-weight: 500; /* 글자 두께 */
+    transition: background-color 0.3s ease, transform 0.2s ease; /* 부드러운 전환 효과 */
+    max-width: 300px; /* 버튼 최대 너비 */
+}
+
+/* 링크 버튼 호버(마우스 올렸을 때) 효과 */
+.link-button:hover {
+    background-color: #1558b0; /* 약간 더 어두운 파란색 */
+    transform: translateY(-2px); /* 살짝 위로 이동 */
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15); /* 호버 시 그림자 강조 */
+}
+
+/* 링크 버튼 클릭(활성) 효과 */
+.link-button:active {
+    transform: translateY(0); /* 클릭 시 원래 위치로 */
+    background-color: #124a99; /* 더 어두운 색 */
+}
+
+/* 푸터 (하단 정보) */
+footer {
+    margin-top: 40px; /* 위쪽 여백 */
+    font-size: 0.9em; /* 약간 작은 글씨 크기 */
+    color: #888; /* 회색 텍스트 */
+}
