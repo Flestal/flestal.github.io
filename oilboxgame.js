@@ -21,7 +21,7 @@ const COLS = GAME_COLS; // 맵 로직에 사용될 컬럼 수
 const ROWS = GAME_ROWS; // 맵 로직에 사용될 로우 수
 const UI_START_X = GAME_AREA_WIDTH; // UI 패널 시작 X 좌표
 
-// --- 이미지 로딩 (동일) ---
+// --- 이미지 로딩 ---
 const images = {};
 const imageSources = {
     player: 'images/oilbox.png',
@@ -60,13 +60,17 @@ let walls = [];
 let isMoving = false;
 let moveDirection = null;
 let currentMoveTarget = null;
-const MOVE_SPEED = 8;
+const MOVE_SPEED = 8; // 이동 속도
 
 let gameState = 'loading'; // 'loading', 'playing', 'cleared', 'resetting'
 
-// --- 새 상태 변수 ---
+// --- 추가 상태 변수 ---
 let currentClears = 0; // 현재 세션의 연속 클리어 횟수
 let highScores = []; // 상위 10개 기록 ( [{ score: number, date: string }, ...] )
+let lastGPressTime = 0; // 마지막 G키 누른 시간
+const DOUBLE_CLICK_THRESHOLD = 500; // GG 판정 시간 (ms)
+let showingHint = false; // 현재 힌트 표시 중인지
+let solutionPath = []; // 힌트 경로 저장 배열 [{row, col}, ...]
 
 // --- 쿠키 함수 ---
 function setCookie(name, value, days) {
@@ -129,7 +133,7 @@ function updateHighScores(newScore) {
 
 // --- 게임 로직 함수 ---
 
-// isWalkable, isMapSolvable (동일 - 내부에서 COLS, ROWS 사용 확인)
+// 맵의 특정 위치가 유효하고 비어있는지 확인 (벽이 아닌지)
 function isWalkable(col, row) {
     if (col < 0 || col >= COLS || row < 0 || row >= ROWS) { // COLS, ROWS 사용 (게임 영역 기준)
         return false;
@@ -137,6 +141,7 @@ function isWalkable(col, row) {
     return map[row][col] !== 1;
 }
 
+// BFS를 이용한 맵 해결 가능성 체크 함수
 function isMapSolvable(tempMap, start, end) {
     const queue = [start];
     const visited = new Set();
@@ -149,6 +154,7 @@ function isMapSolvable(tempMap, start, end) {
         for (const dir of directions) {
             let { row: nextRow, col: nextCol } = current;
             let landRow = -1, landCol = -1;
+            let hasMovedAtLeastOneStep = false;
 
             // 벽이나 맵 가장자리에 닿을 때까지 이동 시뮬레이션
             while (true) {
@@ -157,31 +163,108 @@ function isMapSolvable(tempMap, start, end) {
 
                 // 게임 영역(COLS, ROWS) 밖으로 나가거나 벽이면 멈춤
                 if (testR < 0 || testR >= ROWS || testC < 0 || testC >= COLS || tempMap[testR][testC] === 1) {
-                    landRow = nextRow; // 현재 위치가 착지 지점
-                    landCol = nextCol;
+                    if(!hasMovedAtLeastOneStep) { // 시작하자마자 막힘
+                       landRow = -1; landCol = -1;
+                    } else {
+                       landRow = nextRow; // 현재 위치가 착지 지점
+                       landCol = nextCol;
+                    }
                     break;
                 }
-                 // 맵 밖으로 완전히 나가버리는 경우 - 이 경우는 isSolvable에서 고려하지 않음 (이동 불가 경로)
-                 // 사실상 위의 조건(testR<0 등)에서 break되므로 별도 처리는 불필요할 수 있음.
-
                 nextRow = testR;
                 nextCol = testC;
+                hasMovedAtLeastOneStep = true;
             }
 
-             // 착지 지점이 목표 지점이면 성공
-             if(landRow === end.row && landCol === end.col) {
+             // 유효한 착지 지점이고 목표 지점이면 성공
+             if(landRow !== -1 && landRow === end.row && landCol === end.col) {
                 return true;
              }
 
             // 유효한 착지 지점이고 아직 방문 안 했으면 큐에 추가
             const visitedKey = `${landRow},${landCol}`;
-            if (landRow !== -1 && !visited.has(visitedKey)) { // landRow가 -1 이 아니어야 함 (위 로직 상 -1 될 일은 없음)
+            if (landRow !== -1 && !visited.has(visitedKey)) {
                 visited.add(visitedKey);
                 queue.push({ row: landRow, col: landCol });
             }
         }
     }
-    return false;
+    return false; // 목표에 도달할 수 없음
+}
+
+// --- 새 함수: 해결 경로 찾기 (BFS 기반) ---
+function findSolutionPath(startNode, endNode) {
+    const queue = [startNode];
+    const visited = new Map(); // "row,col" -> { parentKey: "pr,pc", moveDir: '...', landingPos: {row, col} }
+
+    visited.set(`${startNode.row},${startNode.col}`, { parentKey: null, moveDir: null, landingPos: startNode });
+
+    while (queue.length > 0) {
+        const current = queue.shift();
+        const currentKey = `${current.row},${current.col}`;
+
+        // 목표 도달 시 경로 역추적
+        if (current.row === endNode.row && current.col === endNode.col) {
+            const path = [];
+            let traceKey = currentKey;
+            while (traceKey) {
+                const nodeInfo = visited.get(traceKey);
+                if (!nodeInfo) break; // 안전 장치
+                // 시작 노드는 경로에 포함하지 않음 (랜딩 지점만 표시)
+                if (nodeInfo.parentKey) {
+                     path.push(nodeInfo.landingPos); // 착지 지점 좌표 저장
+                }
+                traceKey = nodeInfo.parentKey;
+            }
+            return path.reverse(); // 시작 -> 목표 순서로 반환
+        }
+
+
+        // 4방향 이동 시뮬레이션
+        const directions = [
+            { dr: -1, dc: 0, name: 'up' },
+            { dr: 1, dc: 0, name: 'down' },
+            { dr: 0, dc: -1, name: 'left' },
+            { dr: 0, dc: 1, name: 'right' }
+        ];
+
+        for (const dir of directions) {
+            let { row: nextRow, col: nextCol } = current;
+            let landRow = -1, landCol = -1;
+            let hasMovedAtLeastOneStep = false;
+
+            // 벽이나 맵 가장자리에 닿을 때까지 이동
+            while (true) {
+                let testR = nextRow + dir.dr;
+                let testC = nextCol + dir.dc;
+
+                // 게임 영역 밖이거나 벽이면, 현재 위치(nextRow, nextCol)가 착지 지점
+                if (testR < 0 || testR >= ROWS || testC < 0 || testC >= COLS || map[testR][testC] === 1) {
+                    if (!hasMovedAtLeastOneStep) {
+                        landRow = -1; landCol = -1; // 유효하지 않은 착지
+                    } else {
+                        landRow = nextRow;
+                        landCol = nextCol;
+                    }
+                    break;
+                }
+                nextRow = testR;
+                nextCol = testC;
+                hasMovedAtLeastOneStep = true;
+            }
+
+            const landKey = `${landRow},${landCol}`;
+
+            // 유효한 착지 지점이고 아직 방문 안 했으면 큐에 추가 및 방문 정보 기록
+            if (landRow !== -1 && !visited.has(landKey)) {
+                const landingPos = { row: landRow, col: landCol };
+                visited.set(landKey, { parentKey: currentKey, moveDir: dir.name, landingPos: landingPos });
+                queue.push(landingPos);
+            }
+        }
+    }
+
+    return null; // 경로 못 찾음
 }
 
 
@@ -203,11 +286,10 @@ function generateMap() {
         for (let r = 0; r < ROWS; r++) {
             map[r] = [];
             for (let c = 0; c < COLS; c++) {
-                // 테두리 벽 설정
                 if (r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1) {
-                    map[r][c] = 1;
+                    map[r][c] = 1; // 테두리 벽
                 } else {
-                    map[r][c] = 0;
+                    map[r][c] = 0; // 빈 공간
                 }
             }
         }
@@ -235,7 +317,7 @@ function generateMap() {
         goal.y = goalR * TILE_SIZE;
 
         // 4. 내부 벽 (게임 영역 내)
-        const wallDensity = 0.15;
+        const wallDensity = 0.15; // 벽 밀도 (0 ~ 1)
         for (let r = 1; r < ROWS - 1; r++) {
             for (let c = 1; c < COLS - 1; c++) {
                 if (map[r][c] === 0 && Math.random() < wallDensity) {
@@ -270,19 +352,54 @@ function generateMap() {
     // 게임 상태 초기화
     isMoving = false;
     moveDirection = null;
+    showingHint = false; // 새 맵 생성 시 힌트 초기화
+    solutionPath = [];
     gameState = 'playing';
-    resetPlayerPosition(); // 플레이어 위치 초기화
+    resetPlayerPosition(); // 플레이어 위치 초기화 (이 안에서도 힌트 초기화됨)
+}
+
+// --- 새 함수: 힌트 표시 ---
+function showHint() {
+    console.log("힌트 요청 (GG)");
+    if (gameState !== 'playing' && gameState !== 'cleared') { // 플레이 중이거나 막 클리어 했을때만? 일단 playing만
+         console.log("플레이 중에만 힌트 사용 가능");
+         return;
+    }
+
+    // 1. 현재 클리어 기록이 있다면 최고 점수 업데이트 시도 (0점으로 만들기 전)
+    updateHighScores(currentClears);
+
+    // 2. 클리어 기록 초기화
+    currentClears = 0;
+    console.log("힌트 사용으로 클리어 기록 초기화됨.");
+
+    // 3. 플레이어 위치 리셋 (현재 맵 유지)
+    resetPlayerPosition(); // 이 안에서 showingHint = false 호출됨. 아래서 다시 true로 설정.
+
+    // 4. 해결 경로 탐색
+    const startNode = { row: Math.round(player.startY / TILE_SIZE), col: Math.round(player.startX / TILE_SIZE) };
+    const endNode = { row: Math.round(goal.y / TILE_SIZE), col: Math.round(goal.x / TILE_SIZE) };
+    solutionPath = findSolutionPath(startNode, endNode);
+
+    // 5. 경로 표시 활성화
+    if (solutionPath) {
+        console.log("힌트 경로 찾음:", solutionPath);
+        showingHint = true;
+        gameState = 'playing'; // 힌트 표시 후엔 다시 플레이 상태
+    } else {
+        console.error("힌트 경로를 찾을 수 없습니다. (맵 오류 가능성?)");
+        showingHint = false;
+    }
 }
 
 // 새 게임 시작 (T 키 또는 버튼 클릭 시)
 function startNewGame() {
     console.log("새 게임 시작 요청");
-    // 현재 클리어 기록을 최고 점수에 반영 시도
-    updateHighScores(currentClears);
-    // 현재 클리어 기록 초기화
+    updateHighScores(currentClears); // 현재 기록 저장 시도
     currentClears = 0;
-    // 새 맵 생성
-    generateMap();
+    showingHint = false; // 새 게임 시작 시 힌트 끄기
+    solutionPath = [];
+    generateMap(); // 여기서 resetPlayerPosition, gameState='playing' 처리됨
 }
 
 
@@ -292,24 +409,37 @@ function resetPlayerPosition() {
     player.y = player.startY;
     isMoving = false;
     moveDirection = null;
-    // 게임 오버 상태에서 리셋하는 경우 다시 playing으로
-    if (gameState === 'resetting' || gameState === 'playing') {
+    showingHint = false; // 맵 재시작 시 힌트 끄기
+    solutionPath = [];
+    if (gameState === 'resetting' || gameState === 'playing' || gameState === 'cleared') { // 클리어 상태에서도 재시작 가능
          gameState = 'playing';
     }
-    // 클리어 상태에서 R 누르면 클리어 카운트 유지하고 현재 맵 재시작? -> 일단 playing으로만
-    console.log("플레이어 위치 리셋됨 (현재 맵)");
+    console.log("플레이어 위치 리셋됨 (현재 맵), 힌트 비활성화됨");
 }
 
 
 // --- 입력 처리 ---
 function handleInput(event) {
-    // 로딩 중이거나 이동 중이면 키 입력 무시 (단, R, T는 특정 상태에서 가능하게 할 수 있음)
     if (gameState === 'loading') return;
 
-    // 이동 키 (WASD, Arrows) - 움직이지 않을 때만 & playing 상태일 때만
+    const key = event.key.toUpperCase();
+
+    // G 키 처리 (GG 감지)
+    if (key === 'G') {
+        const now = Date.now();
+        if (now - lastGPressTime < DOUBLE_CLICK_THRESHOLD) {
+            showHint(); // GG 감지 시 힌트 표시 함수 호출
+            lastGPressTime = 0; // 시간 초기화 (연속 GG 방지)
+        } else {
+            lastGPressTime = now;
+        }
+        return; // G키는 다른 동작 막음
+    }
+
+    // 이동 키 (WASD, Arrows) - 움직이지 않을 때 & playing 상태일 때
     if (!isMoving && gameState === 'playing') {
         let requestedDir = null;
-        switch (event.key.toUpperCase()) {
+        switch (key) {
             case 'W': case 'ARROWUP': requestedDir = 'up'; break;
             case 'A': case 'ARROWLEFT': requestedDir = 'left'; break;
             case 'S': case 'ARROWDOWN': requestedDir = 'down'; break;
@@ -317,33 +447,39 @@ function handleInput(event) {
         }
 
         if (requestedDir) {
+            if (showingHint) { // 힌트가 켜져있었다면 끄기
+               showingHint = false;
+               solutionPath = [];
+               console.log("이동 시작으로 힌트 비활성화됨");
+            }
             moveDirection = requestedDir;
             calculateMoveTarget(); // 이동 목표 지점 계산
             if (currentMoveTarget) {
                  isMoving = true;
             } else {
-                moveDirection = null;
+                moveDirection = null; // 이동 불가
             }
             return; // 이동 키 처리했으면 종료
         }
     }
 
-    // 기능 키 (R, T) - 특정 조건 하에 언제든 가능하도록
-    switch (event.key.toUpperCase()) {
+    // 기능 키 (R, T)
+    switch (key) {
         case 'R': // 현재 맵 재시작
+            // 플레이 중, 클리어, 리셋 중일 때 가능
             if (gameState === 'playing' || gameState === 'cleared' || gameState === 'resetting') {
                  console.log("R 키: 현재 맵 재시작");
-                 resetPlayerPosition(); // 플레이어 위치만 리셋
+                 resetPlayerPosition(); // 이 안에서 showingHint = false 처리됨
             }
             break;
-        case 'T': // 새 맵 생성
-             console.log("T 키: 새 게임 시작");
-             startNewGame(); // 점수 기록, 클리어 카운트 리셋, 새 맵 생성
+        case 'T': // 새 맵 생성 (언제든 가능하게 할 수도 있음)
+            console.log("T 키: 새 게임 시작");
+            startNewGame(); // 이 안에서 showingHint = false 처리됨
             break;
     }
 }
 
-// 이동 목표 계산 (동일 - COLS, ROWS 기준)
+// 이동 목표 계산
 function calculateMoveTarget() {
     if (!moveDirection) return;
 
@@ -369,22 +505,20 @@ function calculateMoveTarget() {
 
         // 1. 게임 영역 밖 체크
         if (nextCol < 0 || nextCol >= COLS || nextRow < 0 || nextRow >= ROWS) {
-            // 한 칸이라도 움직였다면, 현재 위치가 최종 목적지 + 맵 밖 플래그
-            if (hasMoved) {
+            if (hasMoved) { // 한 칸이라도 움직였다면, 현재 위치가 최종 목적지 + 맵 밖 플래그
                 currentMoveTarget = { x: targetCol * TILE_SIZE, y: targetRow * TILE_SIZE, outOfBounds: true };
-            } else {
-                 currentMoveTarget = null; // 첫 칸부터 밖이면 이동 불가
+            } else { // 첫 칸부터 밖이면 이동 불가
+                 currentMoveTarget = null;
             }
             break;
         }
 
         // 2. 벽 체크
         if (map[nextRow][nextCol] === 1) {
-             // 한 칸이라도 움직였다면, 현재 위치가 최종 목적지
-             if (hasMoved) {
+             if (hasMoved) { // 한 칸이라도 움직였다면, 현재 위치가 최종 목적지
                  currentMoveTarget = { x: targetCol * TILE_SIZE, y: targetRow * TILE_SIZE, outOfBounds: false };
-             } else {
-                  currentMoveTarget = null; // 첫 칸부터 벽이면 이동 불가
+             } else { // 첫 칸부터 벽이면 이동 불가
+                  currentMoveTarget = null;
              }
             break;
         }
@@ -418,7 +552,8 @@ function handleCanvasClick(event) {
     if (mouseX >= buttonRestart.x && mouseX <= buttonRestart.x + buttonRestart.width &&
         mouseY >= buttonRestart.y && mouseY <= buttonRestart.y + buttonRestart.height) {
         console.log("버튼 클릭: 현재 맵 재시작");
-         if (gameState === 'playing' || gameState === 'cleared' || gameState === 'resetting') {
+        // R키와 동일한 조건
+        if (gameState === 'playing' || gameState === 'cleared' || gameState === 'resetting') {
              resetPlayerPosition();
          }
     }
@@ -434,15 +569,14 @@ function handleCanvasClick(event) {
 
 // --- 게임 루프 ---
 function update() {
-    // 클리어 또는 리셋 상태 처리
+    // 클리어 상태 처리
      if (gameState === 'cleared') {
-         // 클리어 상태에서는 더 이상 업데이트(이동)하지 않음
-         // 다음 맵 생성은 draw에서 메시지 표시 후 setTimeout으로 처리
+         // 다음 맵 생성 예약은 draw 함수에서 처리하므로 여기서는 더 이상 진행 안 함
          return;
      }
+     // 리셋 상태 처리
      if (gameState === 'resetting') {
-         // 리셋 상태면 플레이어 위치 복구
-          resetPlayerPosition(); // 여기서 gameState가 'playing'으로 바뀜
+         resetPlayerPosition(); // 여기서 gameState가 'playing'으로 바뀜
          return;
      }
 
@@ -493,8 +627,11 @@ function update() {
         if (player.x === goal.x && player.y === goal.y) {
             console.log("클리어!");
             gameState = 'cleared';
-            currentClears++; // 클리어 횟수 증가!
-            // 다음 맵 생성은 draw 함수에서 메시지 표시 후 처리
+            // 힌트 사용 중 클리어해도 기록 초기화는 이미 됨
+            if(!showingHint) { // 힌트 사용 안했을 때만 카운트 증가
+                 currentClears++;
+            }
+            // 다음 맵 생성 예약은 draw 함수에서
         }
         currentMoveTarget = null;
     }
@@ -519,7 +656,8 @@ function drawUI() {
     ctx.font = '16px Arial';
     ctx.fillText("이동: WASD / 방향키", UI_START_X + 20, uiY); uiY += 25;
     ctx.fillText("맵 재시작: R", UI_START_X + 20, uiY); uiY += 25;
-    ctx.fillText("새 게임: T", UI_START_X + 20, uiY); uiY += 40;
+    ctx.fillText("새 게임: T", UI_START_X + 20, uiY); uiY += 25;
+    ctx.fillText("힌트: GG", UI_START_X + 20, uiY); uiY += 40;
 
     // 2. 현재 클리어 기록
     ctx.font = 'bold 18px Arial';
@@ -534,14 +672,15 @@ function drawUI() {
     if (highScores.length === 0) {
         ctx.fillText("기록이 없습니다.", UI_START_X + 20, uiY); uiY += 20;
     } else {
+        const maxRecordY = buttonRestart.y - 20; // 버튼 영역 침범 전 Y좌표
         highScores.forEach((scoreData, index) => {
-            if (uiY < buttonRestart.y - 60) { // 버튼 영역 침범 않도록
+            if (uiY < maxRecordY) { // 버튼 영역 침범 않도록
                  ctx.fillText(`${index + 1}. ${scoreData.score} 클리어 (${scoreData.date})`, UI_START_X + 20, uiY);
                  uiY += 20;
             }
         });
     }
-     uiY = buttonRestart.y; // Y 위치를 버튼 위로 재설정 (혹시 기록이 많을 경우 대비)
+     // uiY = buttonRestart.y; // Y 위치를 버튼 위로 재설정할 필요는 없을 듯
 
     // 4. 버튼 그리기
     // 재시작 버튼
@@ -559,6 +698,13 @@ function drawUI() {
     ctx.textAlign = 'center';
     ctx.fillText(buttonNewMap.text, buttonNewMap.x + buttonNewMap.width / 2, buttonNewMap.y + 25);
 
+    // 5. 힌트 사용 중 표시 (선택 사항)
+    if (showingHint) {
+        ctx.fillStyle = 'yellow';
+        ctx.font = 'bold 16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText("힌트 표시 중", UI_START_X + (canvas.width - UI_START_X) / 2, GAME_AREA_HEIGHT - 160);
+    }
 }
 
 // --- 메인 그리기 함수 ---
@@ -567,8 +713,6 @@ function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     // 1. 게임 영역 배경 그리기
-    // bg.png 크기가 게임 영역(1184x672)과 다르면 맞춰서 그려야 함.
-    // 여기서는 게임 영역 크기에 맞춰서 그림 (1200x675 이미지를 1184x672에 그림)
     ctx.drawImage(images.background, 0, 0, GAME_AREA_WIDTH, GAME_AREA_HEIGHT);
 
     // 2. 벽 그리기 (게임 영역 내)
@@ -579,13 +723,23 @@ function draw() {
     // 3. 목표 지점 그리기 (게임 영역 내)
     ctx.drawImage(images.goal, goal.x, goal.y, TILE_SIZE, TILE_SIZE);
 
-    // 4. 플레이어 그리기 (게임 영역 내)
+    // --- 힌트 경로 그리기 (플레이어보다 먼저 그려서 밑에 깔리도록) ---
+    if (showingHint && solutionPath && solutionPath.length > 0) {
+        ctx.globalAlpha = 0.4; // 반투명 설정
+        solutionPath.forEach(pos => {
+            ctx.drawImage(images.player, pos.col * TILE_SIZE, pos.row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        });
+        ctx.globalAlpha = 1.0; // 투명도 복구! (매우 중요)
+    }
+    // --- 힌트 그리기 끝 ---
+
+    // 4. 플레이어 그리기 (힌트 위에 그려짐)
     ctx.drawImage(images.player, player.x, player.y, TILE_SIZE, TILE_SIZE);
 
     // 5. UI 패널 그리기
     drawUI();
 
-    // 6. 클리어 메시지 표시 (전체 화면 중앙 오버레이)
+    // 6. 클리어 메시지 표시 및 다음 맵 예약
      if (gameState === 'cleared') {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
         ctx.fillRect(0, canvas.height / 2 - 40, canvas.width, 80); // 전체 너비에 표시
@@ -594,14 +748,13 @@ function draw() {
         ctx.textAlign = 'center';
         ctx.fillText(`클리어! (${currentClears}번째)`, canvas.width / 2, canvas.height / 2 + 10);
 
-         // 클리어 상태가 된 후 일정 시간 뒤 다음 맵 생성 (루프에서 계속 호출되지 않도록 주의)
-         // -> setTimeout을 gameLoop 밖에서 관리하거나, 플래그 사용 필요
-         // -> 간단하게: 클리어 상태가 되면 바로 다음 맵 생성을 예약하고 상태 변경
-         gameState = 'loading'; // 잠깐 로딩 상태로 (중복 예약 방지)
-         setTimeout(() => {
+        // 클리어 상태가 된 후 일정 시간 뒤 다음 맵 생성 예약
+        // gameState를 loading으로 바꿔 중복 예약 방지
+        gameState = 'loading';
+        setTimeout(() => {
               console.log("다음 레벨 생성");
               generateMap(); // 새 맵 생성 및 게임 상태 초기화 ('playing'으로)
-         }, 1500); // 1.5초 후 새 맵 로드
+        }, 1500); // 1.5초 후 새 맵 로드
     }
 }
 
@@ -609,17 +762,16 @@ function draw() {
 function gameLoop() {
     update();
     draw();
-    requestAnimationFrame(gameLoop);
+    requestAnimationFrame(gameLoop); // 다음 프레임 요청
 }
 
 // --- 게임 시작 ---
 function startGame() {
     console.log("게임 시작!");
     loadHighScores(); // 쿠키에서 최고 점수 로드
-    generateMap(); // 첫 맵 생성 (이 안에서 resetPlayerPosition 호출)
+    generateMap(); // 첫 맵 생성 (이 안에서 resetPlayerPosition 호출 및 gameState='playing' 설정)
     document.addEventListener('keydown', handleInput); // 키 입력 리스너
     canvas.addEventListener('click', handleCanvasClick); // 마우스 클릭 리스너
-    // gameState는 generateMap에서 'playing'으로 설정됨
     gameLoop(); // 게임 루프 시작
 }
 
